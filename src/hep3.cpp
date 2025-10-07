@@ -11,6 +11,7 @@
 #include <epan/tvbuff.h>
 #include <mutex>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <wsutil/inet_cidr.h>
 
 extern "C"
@@ -80,12 +81,18 @@ constexpr const char* IpFamilyName(uint8_t val) noexcept
 {
     switch (val)
     {
-        case 0x02:
+        case AF_UNSPEC:
+            return "Unspecified";
+        case AF_LOCAL:
+            return "Local";
+        case AF_INET:
             return "IPv4";
-        case 0x0A:
+        case AF_INET6:
             return "IPv6";
+        case AF_BLUETOOTH:
+            return "Bluetooth";
         default:
-            return "Unknown IP Family";
+            return "Uknown IP Family";
     }
 }
 
@@ -93,10 +100,14 @@ constexpr const char* IpProtoName(uint8_t val) noexcept
 {
     switch (val)
     {
-        case 0x11:
+        case IPPROTO_UDP:
             return "UDP";
-        case 0x06:
+        case IPPROTO_UDPLITE:
+            return "UDP-Lite";
+        case IPPROTO_TCP:
             return "TCP";
+        case IPPROTO_SCTP:
+            return "SCTP";
         default:
             return "Unknown IP Protocol";
     }
