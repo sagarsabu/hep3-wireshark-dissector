@@ -12,7 +12,6 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <string>
-#include <string_view>
 #include <sys/socket.h>
 #include <wsutil/inet_cidr.h>
 
@@ -27,7 +26,7 @@ int plugin_want_minor{ 4 };
 namespace
 {
 
-constexpr const char* PROTO_NAME{ "HEP3" };
+constexpr const char* HEP3_PROTO_NAME{ "HEP3" };
 
 int g_protoHep3Id{ -1 };
 int g_ettHep3{ -1 };
@@ -119,7 +118,7 @@ constexpr const char* IpProtoName(uint8_t val) noexcept
     }
 }
 
-constexpr const char* HepProtoName(uint8_t val) noexcept
+std::string HepProtoName(uint8_t val) noexcept
 {
     switch (val)
     {
@@ -179,7 +178,7 @@ constexpr const char* HepProtoName(uint8_t val) noexcept
         case 0x3d:
             return "Verto (JSON event/signaling protocol)";
         default:
-            return "Unknown";
+            return "Unknown(" + std::to_string(val) + ')';
     }
 }
 
@@ -208,7 +207,8 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
     proto_tree_add_item(&hepTree, g_hfHepPacketSize, &buffer, offset, TWO_BYTE_SIZE, ENC_BIG_ENDIAN);
     offset += TWO_BYTE_SIZE;
 
-    uint8_t currProtoType{ 0 };
+    uint8_t hepProtoType{ 0 };
+    tvbuff_t* capturePayload{ nullptr };
 
     static constexpr auto CHUNK_HEADER_LEN{ TWO_BYTE_SIZE * 3 };
     while (true)
@@ -268,13 +268,13 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
                 proto_tree_add_ipv4(&hepTree, g_hfHepDspIp, &buffer, offset, payloadLen, ip);
                 break;
             }
-            case 7:
+            case 0x07:
             {
                 pinfo.srcport = tvb_get_uint16(&buffer, offset, ENC_BIG_ENDIAN);
                 proto_tree_add_item(&hepTree, g_hfHepSrcPort, &buffer, offset, payloadLen, ENC_BIG_ENDIAN);
                 break;
             }
-            case 8:
+            case 0x08:
             {
                 pinfo.destport = tvb_get_uint16(&buffer, offset, ENC_BIG_ENDIAN);
                 proto_tree_add_item(&hepTree, g_hfDstPort, &buffer, offset, payloadLen, ENC_BIG_ENDIAN);
@@ -282,32 +282,15 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
             }
             case 0x0b:
             {
-                currProtoType = tvb_get_uint8(&buffer, offset);
-                proto_tree_add_string(
-                    &hepTree,
-                    g_hfHepProtocolType,
-                    &buffer,
-                    offset,
-                    payloadLen,
-                    HepProtoName(tvb_get_uint8(&buffer, offset))
-                );
+                hepProtoType = tvb_get_uint8(&buffer, offset);
+                auto protoName{ HepProtoName(tvb_get_uint8(&buffer, offset)) };
+                proto_tree_add_string(&hepTree, g_hfHepProtocolType, &buffer, offset, payloadLen, protoName.c_str());
                 break;
             }
             case 0x0f:
             {
-                auto capture_payload = tvb_new_subset_length(&buffer, offset, payloadLen);
+                capturePayload = tvb_new_subset_length(&buffer, offset, payloadLen);
                 proto_tree_add_item(&hepTree, g_hfHepPayload, &buffer, offset, payloadLen, ENC_NA);
-
-                auto hepProto{ HepProtoName(currProtoType) };
-                std::string protocolStr{ std::string{ PROTO_NAME } + '/' + hepProto };
-                col_set_str(pinfo.cinfo, COL_PROTOCOL, protocolStr.c_str());
-
-                if (hepProto == std::string_view{ "SIP" })
-                {
-                    call_dissector(g_sipHandle, capture_payload, &pinfo, &parentTree);
-                }
-
-                currProtoType = 0;
                 break;
             }
             default:
@@ -315,6 +298,20 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
         }
 
         offset += payloadLen;
+    }
+
+    if (hepProtoType != 0 and capturePayload != nullptr)
+    {
+        auto hepProto{ HepProtoName(hepProtoType) };
+        if (hepProto == "SIP")
+        {
+            call_dissector(g_sipHandle, capturePayload, &pinfo, &parentTree);
+            col_prepend_fstr(pinfo.cinfo, COL_PROTOCOL, "%s/", HEP3_PROTO_NAME);
+        }
+        else
+        {
+            col_append_sep_str(pinfo.cinfo, COL_PROTOCOL, "/", hepProto.c_str());
+        }
     }
 }
 
@@ -362,7 +359,7 @@ void RegisterHep3ProtoInfo()
         s_onceFlag,
         []
         {
-            g_protoHep3Id = proto_register_protocol(PROTO_NAME, PROTO_NAME, "hep3");
+            g_protoHep3Id = proto_register_protocol(HEP3_PROTO_NAME, HEP3_PROTO_NAME, "hep3");
             proto_register_field_array(g_protoHep3Id, g_hfRegisterData.data(), g_hfRegisterData.size());
             proto_register_subtree_array(g_ettData.data(), g_ettData.size());
         }
