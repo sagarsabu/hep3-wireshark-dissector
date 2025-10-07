@@ -38,6 +38,8 @@ int g_hfHepVersion{ -1 };
 int g_hfHepPacketSize{ -1 };
 int g_hfHepIpFamily{ -1 };
 int g_hfHepIpProto{ -1 };
+int g_hfHepTsSec{ -1 };
+int g_hfHepTsMsOffset{ -1 };
 int g_hfHepSrcPort{ -1 };
 int g_hfDstPort{ -1 };
 int g_hfHepSrcIp{ -1 };
@@ -47,7 +49,7 @@ int g_hfHepPayload{ -1 };
 
 std::array g_hfRegisterData{
     hf_register_info{ &g_hfHepVersion,
-                     { "HepP Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
+                     { "Hep Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
 
     hf_register_info{ &g_hfHepPacketSize,
                      { "Packet Size", "hep3.size", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                       },
@@ -59,18 +61,22 @@ std::array g_hfRegisterData{
                      { "IP Protocol", "hep3.ip_proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
 
     hf_register_info{ &g_hfHepSrcPort,
-                     { "Source Port", "hep3.src_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                   },
+                     { "Src Port", "hep3.src_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                      },
+
+    hf_register_info{ &g_hfHepTsSec,        { "Time Sec", "hep3.ts_sec", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL } },
+
+    hf_register_info{ &g_hfHepTsMsOffset,
+                     { "Time + Ms", "hep3.ts_ms_offset", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                 },
 
     hf_register_info{ &g_hfDstPort,
-                     { "Destination Port", "hep3.dst_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }              },
+                     { "Dst Port", "hep3.dst_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                      },
 
-    hf_register_info{ &g_hfHepSrcIp,        { "Source IP", "hep3.src_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL } },
+    hf_register_info{ &g_hfHepSrcIp,        { "Src IP", "hep3.src_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL }    },
 
-    hf_register_info{ &g_hfHepDspIp,
-                     { "Destination IP", "hep3.dst_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                   },
+    hf_register_info{ &g_hfHepDspIp,        { "Dst IP", "hep3.dst_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL }    },
 
     hf_register_info{ &g_hfHepProtocolType,
-                     { "Hep Protocol", "hep3.proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                    },
+                     { "Protocol", "hep3.proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                        },
 
     hf_register_info{ &g_hfHepPayload,
                      { "Payload", "hep3.payload", FT_BYTES, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                        },
@@ -280,6 +286,18 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
                 proto_tree_add_item(&hepTree, g_hfDstPort, &buffer, offset, payloadLen, ENC_BIG_ENDIAN);
                 break;
             }
+            case 0x09:
+            {
+                pinfo.abs_ts.secs = tvb_get_uint32(&buffer, offset, ENC_BIG_ENDIAN);
+                proto_tree_add_item(&hepTree, g_hfHepTsSec, &buffer, offset, payloadLen, ENC_BIG_ENDIAN);
+                break;
+            }
+            case 0x0a:
+            {
+                pinfo.abs_ts.nsecs = static_cast<int>(tvb_get_uint32(&buffer, offset, ENC_BIG_ENDIAN)) * 1'000'000;
+                proto_tree_add_item(&hepTree, g_hfHepTsMsOffset, &buffer, offset, payloadLen, ENC_BIG_ENDIAN);
+                break;
+            }
             case 0x0b:
             {
                 hepProtoType = tvb_get_uint8(&buffer, offset);
@@ -325,7 +343,7 @@ void RegisterHep3Handoff()
             g_hep3Handle = create_dissector_handle_with_name_and_description(
                 +[](tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, [[maybe_unused]] void* args) -> int
                 {
-                    col_set_str(pinfo->cinfo, COL_PROTOCOL, "HEP3");
+                    col_set_str(pinfo->cinfo, COL_PROTOCOL, HEP3_PROTO_NAME);
 
                     proto_item* rootTree = proto_tree_add_item(tree, g_protoHep3Id, tvb, 0, -1, ENC_NA);
                     proto_tree* hepRoot = proto_item_add_subtree(rootTree, g_ettHep3);
@@ -335,8 +353,8 @@ void RegisterHep3Handoff()
                     return static_cast<int>(tvb_reported_length(tvb));
                 },
                 g_protoHep3Id,
-                "Hep3",
-                "Hep3"
+                HEP3_PROTO_NAME,
+                "Homer Encapsulation Protocol Version 3"
             );
 
             g_sipHandle = find_dissector("sip");
