@@ -11,6 +11,8 @@
 #include <epan/tvbuff.h>
 #include <mutex>
 #include <netinet/in.h>
+#include <string>
+#include <string_view>
 #include <sys/socket.h>
 #include <wsutil/inet_cidr.h>
 
@@ -41,34 +43,38 @@ int g_hfHepSrcPort{ -1 };
 int g_hfDstPort{ -1 };
 int g_hfHepSrcIp{ -1 };
 int g_hfHepDspIp{ -1 };
+int g_hfHepProtocolType{ -1 };
 int g_hfHepPayload{ -1 };
 
 std::array g_hfRegisterData{
     hf_register_info{ &g_hfHepVersion,
-                     { "HEP Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                 },
+                     { "HepP Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
 
     hf_register_info{ &g_hfHepPacketSize,
-                     { "Packet Size", "hep3.size", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                     },
+                     { "Packet Size", "hep3.size", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                       },
 
     hf_register_info{ &g_hfHepIpFamily,
-                     { "IP Family", "hep3.ip_family", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                 },
+                     { "IP Family", "hep3.ip_family", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                   },
 
     hf_register_info{ &g_hfHepIpProto,
-                     { "IP Protocol", "hep3.ip_proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                },
+                     { "IP Protocol", "hep3.ip_proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
 
     hf_register_info{ &g_hfHepSrcPort,
-                     { "Source Port", "hep3.src_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                 },
+                     { "Source Port", "hep3.src_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                   },
 
     hf_register_info{ &g_hfDstPort,
-                     { "Destination Port", "hep3.dst_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }            },
+                     { "Destination Port", "hep3.dst_port", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }              },
 
-    hf_register_info{ &g_hfHepSrcIp,      { "Source IP", "hep3.src_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL } },
+    hf_register_info{ &g_hfHepSrcIp,        { "Source IP", "hep3.src_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL } },
 
     hf_register_info{ &g_hfHepDspIp,
-                     { "Destination IP", "hep3.dst_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                 },
+                     { "Destination IP", "hep3.dst_ip", FT_IPv4, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                   },
+
+    hf_register_info{ &g_hfHepProtocolType,
+                     { "Hep Protocol", "hep3.proto", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                    },
 
     hf_register_info{ &g_hfHepPayload,
-                     { "Payload", "hep3.payload", FT_BYTES, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                      },
+                     { "Payload", "hep3.payload", FT_BYTES, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                        },
 };
 
 std::array g_ettData{ &g_ettHep3 };
@@ -113,6 +119,70 @@ constexpr const char* IpProtoName(uint8_t val) noexcept
     }
 }
 
+constexpr const char* HepProtoName(uint8_t val) noexcept
+{
+    switch (val)
+    {
+        case 0x00:
+            return "RESERVED";
+        case 0x01:
+            return "SIP";
+        case 0x02:
+            return "XMPP";
+        case 0x03:
+            return "SDP";
+        case 0x04:
+            return "RTP";
+        case 0x05:
+            return "RTCP JSON";
+        case 0x06:
+            return "MGCP";
+        case 0x07:
+            return "MEGACO (H.248)";
+        case 0x08:
+            return "M2UA (SS7/SIGTRAN)";
+        case 0x09:
+            return "M3UA (SS7/SIGTRAN)";
+        case 0x0a:
+            return "IAX";
+        case 0x0b:
+            return "H3222";
+        case 0x0c:
+            return "H321";
+        case 0x0d:
+            return "M2PA";
+        case 0x22:
+            return "MOS full report [JSON]";
+        case 0x23:
+            return "MOS short report [JSON]";
+        case 0x32:
+            return "SIP JSON";
+        case 0x33:
+        case 0x34:
+            return "RESERVED";
+        case 0x35:
+            return "DNS JSON";
+        case 0x36:
+            return "M3UA JSON (ISUP)";
+        case 0x37:
+            return "RTSP (JSON)";
+        case 0x38:
+            return "DIAMETER (JSON)";
+        case 0x39:
+            return "GSM MAP (JSON)";
+        case 0x3a:
+            return "RTCP PION";
+        case 0x3b:
+            return "RESERVED";
+        case 0x3c:
+            return "CDR";
+        case 0x3d:
+            return "Verto (JSON event/signaling protocol)";
+        default:
+            return "Unknown";
+    }
+}
+
 void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, proto_tree& parentTree)
 {
     int offset{ 0 };
@@ -146,6 +216,7 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
         auto bytesLeft = tvb_reported_length_remaining(&buffer, offset);
         if (bytesLeft < CHUNK_HEADER_LEN)
         {
+            // not enough for chunk header
             break;
         }
 
@@ -158,6 +229,12 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
         auto chuckLen{ tvb_get_uint16(&buffer, offset, ENC_BIG_ENDIAN) };
         offset += TWO_BYTE_SIZE;
         auto payloadLen{ chuckLen - CHUNK_HEADER_LEN };
+
+        if (bytesLeft < payloadLen)
+        {
+            // not enough for payload
+            break;
+        }
 
         switch (chuckType)
         {
@@ -206,16 +283,30 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
             case 0x0b:
             {
                 currProtoType = tvb_get_uint8(&buffer, offset);
+                proto_tree_add_string(
+                    &hepTree,
+                    g_hfHepProtocolType,
+                    &buffer,
+                    offset,
+                    payloadLen,
+                    HepProtoName(tvb_get_uint8(&buffer, offset))
+                );
                 break;
             }
             case 0x0f:
             {
                 auto capture_payload = tvb_new_subset_length(&buffer, offset, payloadLen);
                 proto_tree_add_item(&hepTree, g_hfHepPayload, &buffer, offset, payloadLen, ENC_NA);
-                if (currProtoType == 0x01)
-                { // sip
+
+                auto hepProto{ HepProtoName(currProtoType) };
+                std::string protocolStr{ std::string{ PROTO_NAME } + '/' + hepProto };
+                col_set_str(pinfo.cinfo, COL_PROTOCOL, protocolStr.c_str());
+
+                if (hepProto == std::string_view{ "SIP" })
+                {
                     call_dissector(g_sipHandle, capture_payload, &pinfo, &parentTree);
                 }
+
                 currProtoType = 0;
                 break;
             }
