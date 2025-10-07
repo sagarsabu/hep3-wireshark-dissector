@@ -200,6 +200,7 @@ void DissectHep3(tvbuff_t& buffer, packet_info& pinfo, proto_tree& hepTree, prot
             case 0x0f:
             {
                 auto capture_payload = tvb_new_subset_length(&buffer, offset, payloadLen);
+                proto_tree_add_item(&hepTree, g_hfHepPayload, &buffer, offset, payloadLen, ENC_NA);
                 if (currProtoType == 0x01)
                 { // sip
                     call_dissector(g_sipHandle, capture_payload, &pinfo, &parentTree);
