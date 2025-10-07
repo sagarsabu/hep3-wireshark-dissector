@@ -1,0 +1,9 @@
+CompileFlags:
+  Remove: [-fsanitize=*]
+  CompilationDatabase: ./build/debug
+Diagnostics:
+  Includes:
+    IgnoreHeader:
+      - AsyncUtils.h
+Completion:
+  HeaderInsertion: Never
