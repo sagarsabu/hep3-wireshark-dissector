@@ -13,14 +13,17 @@
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <ws_symbol_export.h>
+#include <ws_version.h>
 #include <wsutil/inet_cidr.h>
+#include <wsutil/plugins.h>
 
 extern "C"
 {
 // symbols required by epan
-const char* plugin_version{ "0.0.1" };
-int plugin_want_major{ 4 };
-int plugin_want_minor{ 4 };
+WS_DLL_PUBLIC_DEF char plugin_version[]{ "0.0.1" };
+WS_DLL_PUBLIC_DEF int plugin_want_major{ WIRESHARK_VERSION_MAJOR };
+WS_DLL_PUBLIC_DEF int plugin_want_minor{ WIRESHARK_VERSION_MINOR };
 }
 
 namespace
@@ -49,7 +52,7 @@ int g_hfHepPayload{ -1 };
 
 std::array g_hfRegisterData{
     hf_register_info{ &g_hfHepVersion,
-                     { "Hep Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                  },
+                     { "Hep Version", "hep3.version", FT_STRING, BASE_NONE, nullptr, 0x0, nullptr, HFILL }                   },
 
     hf_register_info{ &g_hfHepPacketSize,
                      { "Packet Size", "hep3.size", FT_UINT16, BASE_DEC, nullptr, 0x0, nullptr, HFILL }                       },
@@ -386,10 +389,16 @@ void RegisterHep3ProtoInfo()
 
 } // namespace
 
-extern "C" void plugin_register(void)
+extern "C"
+{
+
+WS_DLL_PUBLIC void plugin_register(void)
 {
     static const proto_plugin s_hep3Plugin{ .register_protoinfo = &RegisterHep3ProtoInfo,
                                             .register_handoff = &RegisterHep3Handoff };
     static std::once_flag s_onceFlag{};
     std::call_once(s_onceFlag, [] { proto_register_plugin(&s_hep3Plugin); });
+}
+
+WS_DLL_PUBLIC uint32_t plugin_describe(void) { return WS_PLUGIN_DESC_DISSECTOR; }
 }
